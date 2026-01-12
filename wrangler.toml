@@ -1,0 +1,14 @@
+name = "token-health"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[vars]
+PAYMENT_NETWORK = "mainnet"
+PAYMENT_AMOUNT_STX = "0.01"
+# PAYMENT_ADDRESS must be set via wrangler secret or dashboard
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "30be29352df74456978a7d5b678e4cca"

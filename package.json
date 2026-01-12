@@ -1,0 +1,22 @@
+{
+  "name": "token-health",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260111.0",
+    "@types/bun": "latest",
+    "typescript": "^5.0.0",
+    "wrangler": "^4.58.0"
+  },
+  "dependencies": {
+    "axios": "^1.13.2",
+    "hono": "^4.11.3",
+    "x402-stacks": "^1.1.1"
+  }
+}
