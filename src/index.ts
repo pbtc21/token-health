@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { calculateHealthScore, type HealthReport } from "./health";
 import { TeneroClient } from "./tenero";
-import { x402PaymentRequired, STXtoMicroSTX } from "./x402";
+import { x402PaymentRequired } from "./x402";
 
 type Bindings = {
   CACHE: KVNamespace;
@@ -24,18 +24,20 @@ app.get("/", (c) => {
     },
     example: "/health/SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token",
     pricing: {
-      amount: c.env.PAYMENT_AMOUNT_STX || "0.01",
-      token: "STX",
+      stx: c.env.PAYMENT_AMOUNT_STX || "0.01",
+      sbtc: "0.00000001", // 1 sat
       protocol: "x402",
+      tokenTypeParam: "?tokenType=STX|sBTC",
     },
   });
 });
 
-// Payment-gated health check endpoint
+// Payment-gated health check endpoint (accepts STX or sBTC)
 app.use("/health/*", async (c, next) => {
-  const amount = STXtoMicroSTX(parseFloat(c.env.PAYMENT_AMOUNT_STX || "0.01"));
   const middleware = x402PaymentRequired({
-    amount,
+    amountSTX: parseFloat(c.env.PAYMENT_AMOUNT_STX || "0.01"),
+    amountSBTC: 0.00000001, // 1 sat
+    amount: BigInt(0), // Will be calculated based on token type
     address: c.env.PAYMENT_ADDRESS,
     network: c.env.PAYMENT_NETWORK || "mainnet",
     resource: c.req.path,

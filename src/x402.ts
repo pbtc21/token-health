@@ -1,14 +1,28 @@
 import type { Context, MiddlewareHandler } from "hono";
 import {
   STXtoMicroSTX,
+  BTCtoSats,
   type X402MiddlewareConfig,
   type X402PaymentRequired as PaymentRequiredResponse,
   type VerifiedPayment,
 } from "x402-stacks";
 
-export { STXtoMicroSTX };
+export { STXtoMicroSTX, BTCtoSats };
 
 const HIRO_API = "https://api.hiro.so";
+
+// Token types supported
+export type TokenType = "STX" | "sBTC";
+
+// Token contracts for sBTC
+const TOKEN_CONTRACTS = {
+  mainnet: {
+    sBTC: { address: "SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9", name: "token-sbtc" },
+  },
+  testnet: {
+    sBTC: { address: "ST1F7QA2MDF17S807EPA36TSS8AMEFY4KA9TVGWXT", name: "sbtc-token" },
+  },
+};
 
 /**
  * Broadcast a signed transaction to Stacks network
@@ -54,19 +68,50 @@ async function broadcastTransaction(
 }
 
 /**
+ * Extended config with multi-token support
+ */
+export interface MultiTokenConfig extends X402MiddlewareConfig {
+  amountSTX: number;
+  amountSBTC?: number; // in BTC (e.g., 0.000001)
+}
+
+/**
+ * Validate and normalize token type from request
+ */
+function getTokenType(c: Context): TokenType {
+  const queryToken = c.req.query("tokenType");
+  const headerToken = c.req.header("X-PAYMENT-TOKEN-TYPE");
+  const tokenStr = (headerToken || queryToken || "STX").toUpperCase();
+
+  if (tokenStr === "SBTC") return "sBTC";
+  return "STX";
+}
+
+/**
  * Hono middleware for x402 payment requirements
- * Uses direct broadcast instead of facilitator
+ * Supports STX and sBTC payments
  */
 export function x402PaymentRequired(
-  config: X402MiddlewareConfig
+  config: MultiTokenConfig
 ): MiddlewareHandler {
   return async (c: Context, next) => {
+    // Determine which token type client wants to pay with
+    const tokenType = getTokenType(c);
+
+    // Get amount in smallest units based on token type
+    let amount: bigint;
+    if (tokenType === "sBTC" && config.amountSBTC) {
+      amount = BTCtoSats(config.amountSBTC);
+    } else {
+      amount = BigInt(STXtoMicroSTX(config.amountSTX));
+    }
+
     // Check for signed payment in X-PAYMENT header
     const signedPayment = c.req.header("x-payment");
 
     // If no payment provided, return 402 Payment Required
     if (!signedPayment) {
-      return sendPaymentRequired(c, config);
+      return sendPaymentRequired(c, { ...config, amount }, tokenType);
     }
 
     try {
@@ -120,13 +165,18 @@ export function x402PaymentRequired(
   };
 }
 
-function sendPaymentRequired(c: Context, config: X402MiddlewareConfig) {
+function sendPaymentRequired(c: Context, config: X402MiddlewareConfig & { amount: bigint }, tokenType: TokenType) {
   const expirationSeconds = config.expirationSeconds || 300;
   const expiresAt = new Date(
     Date.now() + expirationSeconds * 1000
   ).toISOString();
   const nonce = crypto.randomUUID();
   const resource = config.resource || c.req.path;
+
+  // Get token contract for sBTC
+  const tokenContract = tokenType === "sBTC"
+    ? TOKEN_CONTRACTS[config.network]?.sBTC
+    : undefined;
 
   const paymentRequest: PaymentRequiredResponse = {
     maxAmountRequired: config.amount.toString(),
@@ -135,8 +185,8 @@ function sendPaymentRequired(c: Context, config: X402MiddlewareConfig) {
     network: config.network,
     nonce,
     expiresAt,
-    tokenType: config.tokenType || "STX",
-    tokenContract: config.tokenContract,
+    tokenType,
+    ...(tokenContract && { tokenContract }),
   };
 
   return c.json(paymentRequest, 402);
