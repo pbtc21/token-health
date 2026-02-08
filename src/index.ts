@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { calculateHealthScore, type HealthReport } from "./health";
 import { TeneroClient } from "./tenero";
-import { x402PaymentRequired } from "./x402";
+import { x402PaymentRequired, STXtoMicroSTX } from "./x402";
 
 type Bindings = {
   CACHE: KVNamespace;
@@ -15,12 +15,91 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 app.use("*", cors());
 
+// x402 Discovery endpoint
+app.get("/.well-known/x402", (c) => {
+  const amountSTX = parseFloat(c.env.PAYMENT_AMOUNT_STX || "0.01");
+  const maxAmountRequired = STXtoMicroSTX(amountSTX).toString();
+
+  return c.json({
+    x402Version: 1,
+    name: "Token Health",
+    accepts: [
+      {
+        scheme: "exact",
+        network: "stacks",
+        maxAmountRequired,
+        resource: "/health/:token",
+        description: "Token health scores and analysis",
+        mimeType: "application/json",
+        payTo: c.env.PAYMENT_ADDRESS || "SPKH9AWG0ENZ87J1X0PBD4HETP22G8W22AFNVF8K",
+        maxTimeoutSeconds: 300,
+        asset: "STX",
+        outputSchema: {
+          input: {
+            type: "object",
+            properties: {
+              token: {
+                type: "string",
+                description: "Token contract address (e.g., SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token)",
+              },
+            },
+            required: ["token"],
+          },
+          output: {
+            type: "object",
+            properties: {
+              token: {
+                type: "object",
+                properties: {
+                  address: { type: "string" },
+                  name: { type: "string" },
+                  symbol: { type: "string" },
+                  price_usd: { type: "number" },
+                  market_cap_usd: { type: "number" },
+                },
+              },
+              score: { type: "number", description: "Health score 0-100" },
+              grade: { type: "string", enum: ["A", "B", "C", "D", "F"] },
+              breakdown: {
+                type: "object",
+                properties: {
+                  concentration: { type: "object" },
+                  freshWallets: { type: "object" },
+                  holderActivity: { type: "object" },
+                  volumeTrend: { type: "object" },
+                },
+              },
+              metrics: {
+                type: "object",
+                properties: {
+                  top10Ownership: { type: "number" },
+                  top25Ownership: { type: "number" },
+                  top50Ownership: { type: "number" },
+                  freshWalletRatio: { type: "number" },
+                  holderCount: { type: "number" },
+                  activeRatio: { type: "number" },
+                  volume24h: { type: "number" },
+                  volume7dAvg: { type: "number" },
+                  volumeTrendPercent: { type: "number" },
+                },
+              },
+              flags: { type: "array", items: { type: "string" } },
+              timestamp: { type: "number" },
+            },
+          },
+        },
+      },
+    ],
+  });
+});
+
 app.get("/", (c) => {
   return c.json({
     name: "Token Health Check",
     version: "1.0.0",
     endpoints: {
       health: "GET /health/:tokenAddress",
+      discovery: "GET /.well-known/x402",
     },
     example: "/health/SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token",
     pricing: {
